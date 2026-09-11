@@ -1,0 +1,3 @@
+[functions.manage-users]
+verify_jwt = false
+# The function validates the JWT with auth.getUser and authorizes via AAL2 RLS.

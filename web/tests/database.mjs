@@ -1,0 +1,31 @@
+import {PGlite} from '@electric-sql/pglite';
+import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
+import {readFile} from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const db=new PGlite({extensions:{btree_gist}});
+await db.exec(`create schema auth;create schema extensions;create role anon;create role authenticated;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb$$;grant usage on schema public,auth to authenticated,anon;grant execute on function auth.uid(),auth.jwt() to authenticated,anon;`);
+await db.exec(await readFile(new URL('../supabase/migrations/001_initial.sql',import.meta.url),'utf8'));
+const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+await db.query('insert into auth.users values ($1),($2),($3)',[id(1),id(2),id(3)]);
+await db.query("insert into public.operators values ($1,'Admin','admin',true),($2,'Recepção','operator',true)",[id(1),id(2)]);
+async function actor(n,aal='aal2'){await db.exec('reset role');await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claims',$2,false)",[id(n),JSON.stringify({aal})]);await db.exec('set role authenticated')}
+async function save(entity,rows){await db.query('select public.save_batch($1,$2)',[entity,JSON.stringify(rows)])}
+const student={id:id(20),name:'Aluno teste',supervisor:'Supervisora',semester:'Clínico 1',availability:[],institution_verified:true,declared_count:0,reconciled:true};
+const patient=n=>({id:id(n),name:'Paciente teste '+n,age:20,status:'Aguardando vaga',availability:[],details:{atitus_student:false,employee:false,psychology_relative:false}});
+await actor(1);await save('students',[student]);await save('patients',[patient(30),patient(31),patient(32),patient(33)]);
+await actor(2,'aal1');assert.equal((await db.query('select * from public.patients')).rows.length,0);await assert.rejects(save('patients',[patient(34)]));
+await actor(3);assert.equal((await db.query('select * from public.patients')).rows.length,0);await assert.rejects(save('patients',[patient(34)]));
+await actor(2);assert.equal((await db.query('select * from public.patients')).rows.length,4);assert.equal((await db.query('select * from public.operators')).rows.length,1);await assert.rejects(db.query("update public.operators set role='admin' where id=$1",[id(2)]));
+const link=(n,p)=>({id:id(n),patient_id:id(p),student_id:id(20),started_on:'2026-09-11',ended_on:null,reason:''});
+await save('assignments',[link(40,30),link(41,31),link(42,32)]);assert.equal((await db.query('select * from public.assignments where ended_on is null')).rows.length,3);
+await assert.rejects(save('assignments',[link(43,30)]));
+await save('patients',[{...patient(33),details:{...patient(33).details,atitus_student:true}}]);await assert.rejects(save('assignments',[link(44,33)]));
+await assert.rejects(save('patients',[patient(34),{...patient(35),age:-1}]));assert.equal((await db.query('select * from public.patients where id=$1',[id(34)])).rows.length,0);
+const appointment=(n,p,start='2030-09-11T09:00:00-03:00',end='2030-09-11T09:50:00-03:00')=>({id:id(n),patient_id:id(p),student_id:id(20),start,end,kind:'Sessão',status:'Agendado',room:'Sala 1'});
+await save('appointments',[appointment(50,30)]);await assert.rejects(save('appointments',[appointment(51,31)]));await save('appointments',[appointment(52,31,'2030-09-11T09:50:00-03:00','2030-09-11T10:40:00-03:00')]);
+await save('assignments',[{...link(40,30),ended_on:'2026-09-12',reason:'Encerramento teste'}]);assert.equal((await db.query('select status from public.patients where id=$1',[id(30)])).rows[0].status,'Encerrado');assert.equal((await db.query('select status from public.appointments where id=$1',[id(50)])).rows[0].status,'Cancelado');
+await assert.rejects(save('assignments',[link(40,30)]));
+await db.query("select public.log_export('patients',4)");assert.equal((await db.query('select * from public.audit_events')).rows.length,0);
+await actor(1);assert.ok((await db.query('select * from public.audit_events')).rows.length>0);
+await db.exec('reset role');await db.query('update public.operators set active=false where id=$1',[id(2)]);await actor(2);assert.equal((await db.query('select * from public.patients')).rows.length,0);
+await db.close();console.log('PASS: schema, MFA RLS, unauthorized access, role isolation, >2 patients, duplicate link, eligibility, atomic import, overlap, adjacent slots, closure, audit and revoked operator.');

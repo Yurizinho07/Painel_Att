@@ -1,0 +1,9 @@
+export type Patient = {id:string;name:string;age:number;status:string;availability:string[];details:Record<string, string|number|boolean|null>};
+export type Student = {id:string;name:string;supervisor:string;semester:string;availability:string[];institution_verified:boolean;declared_count:number;reconciled:boolean};
+export type Appointment = {id:string;patient_id:string;student_id:string|null;start:string;end:string;kind:string;status:string;room:string};
+export type Assignment = {id:string;patient_id:string;student_id:string;started_on:string;ended_on:string|null;reason:string};
+export type Data = {patients:Patient[];students:Student[];appointments:Appointment[];assignments:Assignment[]};
+export type Table = keyof Data;
+export const statuses=["Aguardando contato","Triagem agendada","Triagem realizada","Aguardando vaga","Em atendimento","Encerrado","Desistência","Encaminhado"];
+export const days=["Segunda","Terça","Quarta","Quinta","Sexta"];
+export const shifts=["manhã","tarde","noite"];
